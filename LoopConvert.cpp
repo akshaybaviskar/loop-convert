@@ -276,7 +276,16 @@ class VarHandler : public MatchFinder::MatchCallback
 				}
 				else if(vd->getType().getAsString().find("struct") != string::npos)
 				{
-						  type = "struct";
+						if(vd->getType().getAsString().find("[") != string::npos)
+						{
+								type = vd->getType().getAsString();
+								type.erase(vd->getType().getAsString().find("["), vd->getType().getAsString().length());
+						}
+						else
+						{
+								  type = vd->getType().getAsString();
+						}
+	
 				}
 				else if(vd->getType().getAsString().find("char") != string::npos)
 				{
@@ -780,12 +789,12 @@ class ExpressionRewriter : public MatchFinder::MatchCallback
 											if( strcmp(clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getName(),"l_square") == 0) 
 											{
 													  brace++;
-													  cout<<brace<<" :incremented\n";
+													 // cout<<brace<<" :incremented\n";
 											}
 											else if(strcmp(clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getName(),"r_square") == 0)
 											{
 													  brace--;
-													  cout<<brace<<" :decremented\n";
+													//  cout<<brace<<" :decremented\n";
 											}
 											loc = clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getLocation();
 											if(brace == -1) break;
@@ -811,12 +820,12 @@ class ExpressionRewriter : public MatchFinder::MatchCallback
 											if( strcmp(clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getName(),"l_square") == 0) 
 											{
 													  brace++;
-													  cout<<brace<<" :incremented\n";
+													//  cout<<brace<<" :incremented\n";
 											}
 											else if(strcmp(clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getName(),"r_square") == 0)
 											{
 													  brace--;
-													  cout<<brace<<" :decremented\n";
+													//  cout<<brace<<" :decremented\n";
 											}
 											loc = clang::Lexer::findNextToken(loc, R.getSourceMgr(), R.getLangOpts())->getLocation();
 											if(brace == -1) break;
