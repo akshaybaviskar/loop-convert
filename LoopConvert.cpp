@@ -930,6 +930,184 @@ class  LabRewriter : public MatchFinder::MatchCallback
 	}
 };
 
+unordered_map<int,unordered_map<string,int>> str_parent;
+unordered_map<int,int> str_visited;
+class StructDefFinder : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	StructDefFinder(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+		if(const RecordDecl* rd = Result.Nodes.getNodeAs<clang::RecordDecl>("rd"))
+		{
+			if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+			{
+					string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+		
+					line = rd->getBeginLoc().printToString(R.getSourceMgr());
+					int str_l = get_line_no(line);
+
+					str_visited[str_l] = 1;
+
+					if(str_parent.find(l) == str_parent.end())
+					{
+							  str_parent[l] = unordered_map<string,int>();
+					}
+					str_parent[l][(string(rd->getName()))] = str_l;
+
+					/*update new name*/
+					stringstream name;
+					name<<renameinfo[l]<<"_"<<string(rd->getName());
+					R.ReplaceText(rd->getBeginLoc().getLocWithOffset(7),name.str());
+			}
+			if(const FunctionDecl* fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
+			{
+					string line = fdecl->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+					line = rd->getBeginLoc().printToString(R.getSourceMgr());
+					int str_l = get_line_no(line);
+
+					if(str_visited.find(str_l) == str_visited.end())
+					{
+						if(str_parent.find(l) == str_parent.end())
+						{
+								  str_parent[l] = unordered_map<string,int>();
+						}
+						str_parent[l][string(rd->getName())] = str_l;
+						/*update new name*/
+						stringstream name;
+						name<<renameinfo[l]<<"_"<<string(rd->getName());
+						R.ReplaceText(rd->getBeginLoc().getLocWithOffset(7),name.str());
+					}
+			}
+		}
+	}
+};
+
+unordered_map<string,int> str_var_visited;
+class StructDefRewriter : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	StructDefRewriter(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+		if(const VarDecl* vd = Result.Nodes.getNodeAs<clang::VarDecl>("vd"))
+		{
+			if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+			{
+					string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+		
+					line = vd->getBeginLoc().printToString(R.getSourceMgr());
+					int str_l = get_line_no(line);
+					string vd_name = string(vd->getName());
+					string vd_type = vd->getType().getAsString();
+					/*Add to str_var_visited to avoid updating next time.*/
+					stringstream strvisited;
+					strvisited<<vd_name<<str_l;
+				//	cout<<strvisited.str()<<endl;
+
+					str_var_visited[strvisited.str()] = 1;
+
+					if(vd_type.find("struct ") != string::npos)
+					{
+						vd_type.erase(0,7);
+					//	cout<<"checking for "<<vd_type<<str_l<<endl;
+						stringstream ss;
+						ss<<vd_name<<str_l;
+						string decl_index = ss.str();
+
+						int found = 0;
+
+						for(auto i:depthtrav[l])
+						{
+								 // cout<<"checking in: "<<i<<endl;
+								  if(str_parent[i].find(vd_type) != str_parent[i].end())
+								  {
+									//	cout<<"found in: "<<i<<endl;
+										for(auto j:str_parent[i])
+										{
+									//			  cout<<j.first<<endl;
+											if((vd_type.compare(j.first)==0) && (j.second<str_l))
+											{
+										      // cout<<vd_name<<"->"<<i<<endl;
+							                stringstream name;
+												 name<<renameinfo[i]<<"_"<<vd_type;
+												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+												 found  = i;
+								             break;
+									       }
+										}
+									if(found!=0) break;
+								  }
+						}
+					}
+			}
+			
+			if(const FunctionDecl* fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
+			{
+
+					string line = fdecl->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+		
+					line = vd->getBeginLoc().printToString(R.getSourceMgr());
+				//	cout<<line<<endl;
+					int str_l = get_line_no(line);
+					string vd_name = string(vd->getName());
+					string vd_type = vd->getType().getAsString();
+					/*Add to str_var_visited to avoid updating next time.*/
+					stringstream strvisited;
+					strvisited<<vd_name<<str_l;
+				//	cout<<strvisited.str()<<endl;
+
+					if((vd_type.find("struct ") != string::npos) && (str_var_visited.find(strvisited.str()) == str_var_visited.end()))
+					{
+						str_var_visited[strvisited.str()] = 1;
+						vd_type.erase(0,7);
+					//	cout<<"checking for "<<vd_type<<str_l<<endl;
+						stringstream ss;
+						ss<<vd_name<<str_l;
+						string decl_index = ss.str();
+
+						int found = 0;
+
+						for(auto i:depthtrav[l])
+						{
+								 // cout<<"checking in: "<<i<<endl;
+								  if(str_parent[i].find(vd_type) != str_parent[i].end())
+								  {
+									//	cout<<"found in: "<<i<<endl;
+										for(auto j:str_parent[i])
+										{
+									//			  cout<<j.first<<endl;
+											if((vd_type.compare(j.first)==0) && (j.second<str_l))
+											{
+										      // cout<<vd_name<<"->"<<i<<endl;
+							                stringstream name;
+												 name<<renameinfo[i]<<"_"<<vd_type;
+												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+												 found  = i;
+								             break;
+									       }
+										}
+									if(found!=0) break;
+								  }
+						}
+					}
+				}
+
+			}
+		}
+};
 
 class MyASTConsumer : public ASTConsumer
 {
@@ -943,12 +1121,18 @@ class MyASTConsumer : public ASTConsumer
 	MatchFinder Finder;
 	MatchFinder Rew;
 	MatchFinder Hoist;
+	MatchFinder StructFinder;
+	MatchFinder StructFinder2;
+	MatchFinder StructFinder3;
+	MatchFinder StructFinder4;
 	StructInit StrR;
 	ExpressionRewriter ExpR; 
+	StructDefFinder StrdF;
+	StructDefRewriter StrDR;
 
 	public:
 	//Constructor for MyASTCOnsumer, initialize labelHandler too.
-	MyASTConsumer(Rewriter& R) : lblM(R),VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R)
+	MyASTConsumer(Rewriter& R) : lblM(R),VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R), StrdF(R), StrDR(R)
   {
 	// Add things we want to search for e.g. label stmt.
 	// Attach a MatchCallback to tell what action to take when that object is found.
@@ -970,6 +1154,11 @@ class MyASTConsumer : public ASTConsumer
 	 Finder.addMatcher(labelStmt().bind("lab"),&VarM);
 
 	 Finder.addMatcher(declRefExpr(hasAncestor(labelStmt().bind("lab"))).bind("exp"), &ExpM);
+
+	 StructFinder.addMatcher(recordDecl(hasAncestor(labelStmt().bind("lab"))).bind("rd"),&StrdF);
+	 StructFinder2.addMatcher(recordDecl(hasAncestor(functionDecl().bind("fun"))).bind("rd"),&StrdF);
+	 StructFinder3.addMatcher(varDecl(hasAncestor(labelStmt().bind("lab"))).bind("vd"),&StrDR);
+	 StructFinder4.addMatcher(varDecl(hasAncestor(functionDecl().bind("fun")), isExpansionInMainFile()).bind("vd"),&StrDR);
 	
    /*Mathcers to rewrite*/
 	 Rew.addMatcher(callExpr().bind("call"),&CallR);
@@ -983,6 +1172,10 @@ class MyASTConsumer : public ASTConsumer
 	{
 		//Find all the matches in Context, specified by matchAST.
 		Finder.matchAST(Context);
+		StructFinder.matchAST(Context);
+		StructFinder2.matchAST(Context);
+		StructFinder3.matchAST(Context);
+		StructFinder4.matchAST(Context);
 		Rew.matchAST(Context);
 		Hoist.matchAST(Context);
 	}
@@ -1094,7 +1287,18 @@ class MyFrontendAction : public ASTFrontendAction
 		
 
 		/*Run AST for newfile*/
-		//hoister_fun();		
+		//hoister_fun();	
+
+		cout<<"Struct decl"<<endl;
+		for(auto i:str_parent)
+		{
+			cout<<i.first;
+			for(auto j:i.second)
+			{
+				cout<<"->"<<j.first<<"("<<j.second<<")";
+			}
+			cout<<endl;
+		}			
 		
   /*  cout << "\nVarinfo : \n"; 
       for (auto itr: varinfo) 
