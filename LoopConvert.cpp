@@ -38,8 +38,9 @@ void hoister_fun();
 unordered_map<int,vector<pair<string,string>>>  varinfo;
 unordered_map<string,vector<int>> arrinfo; //7 a[4][5][6] -> <a7,<3,6->5->4>>
 unordered_map<string, int> vardepth;//varname, depth of label/fun in which it lies.
-unordered_map<int,string> scopeinfo;
 unordered_map<int,string> scopeinit;
+unordered_map<int,string> scopeinfo;
+unordered_map<int,string> scopeinfo_str;
 unordered_map<int,string> nameinfo; //line no, name
 unordered_map<int,int> depthinfo; //line no,depth
 unordered_map<int,string> renameinfo; //line no, newname
@@ -52,57 +53,14 @@ unordered_map<int, int> callexprdepth; // stores information of depth of functio
 unordered_map<string,int> globalfun; //if function is global function, contains it's line no.
 unordered_map<int,string> prototypes; //contains prototypes of all nested labels
 unordered_map<string,string> lab_parent; //label_name -> parent
-unordered_map<string,string> orig_list;
-unordered_map<string,string> updated_list;
-
-class LabelMatcher : public MatchFinder::MatchCallback
-{
-	public:
-	//  point R to Rewriter object passed to constructor of LabelMatcher.
-	LabelMatcher(Rewriter &Rewrite): R(Rewrite){}
-
-	virtual void run(const MatchFinder::MatchResult &Result)
-	{
-		if(const LabelStmt *ls = Result.Nodes.getNodeAs<clang::LabelStmt>("label"))
-		{
-			if(const FunctionDecl *fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
-			{
-				const CompoundStmt *cs = Result.Nodes.getNodeAs<clang::CompoundStmt>("com");           
-				//ls->dump();
-			
-//				cout<<"InFunction: "<< fdecl->getName().bytes_begin()<<endl;
-			//	cout<<ls->getName()<<endl;	 		
-		
-				R.InsertText(ls->getIdentLoc(),fdecl->getName(),true);
-				R.InsertText(ls->getIdentLoc(),"_",true);
-			
-				/*Insert it into a list and rename it to fun_label*/
-//				unsigned startOffs = R.getSourceMgr().getFileOffset(cs->getBeginLoc());
-//				unsigned endOffs = R.getSourceMgr().getFileOffset(cs->getEndLoc());
-//			   FileID FID = R.getSourceMgr().getFileID(cs->getBeginLoc());
-//				StringRef Buf = R.getSourceMgr().getBufferData(FID);
-//				Buf = Buf.slice(startOffs, endOffs);
-     		  // cout<<Buf.data()<<endl;	
-
-				SourceLocation b(ls->getBeginLoc()), e(ls->getEndLoc());		
-		   	SourceLocation end(clang::Lexer::getLocForEndOfToken(e,0,R.getSourceMgr(),R.getLangOpts()));
-
-				string S = string(R.getSourceMgr().getCharacterData(b),R.getSourceMgr().getCharacterData(end) - R.getSourceMgr().getCharacterData(b));
-			   
-								
-			}
-		}
-
-	   if(const BlockDecl *cs = Result.Nodes.getNodeAs<clang::BlockDecl>("block"))
-		{
-			cs->dump();
-		}
-
-	}
-		
-	private:
-	Rewriter &R; //reference to rewriter
-};
+unordered_map<string,string> orig_list; //original view of function/label before hoisting (fun_name -> view)
+unordered_map<string,string> updated_list; //updated view of function/label for hoisting (fun_name -> view)
+/*Data structures for structure renaming and hoisting.*/
+unordered_map<string,string> struct_hoist_info;
+map<int,string> struct_hoist_info_ord;
+unordered_map<int,unordered_map<string,int>> str_parent;
+unordered_map<int,int> str_visited;
+unordered_map<string,int> str_var_visited;
 
 int get_line_no(string line)
 {
@@ -891,6 +849,34 @@ class  Hoist_out : public MatchFinder::MatchCallback
 	}
 };
 
+class  StructHoister : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	StructHoister(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+		if(const RecordDecl* rd = Result.Nodes.getNodeAs<clang::RecordDecl>("rd"))
+		{
+			if(rd->isCompleteDefinition() && rd->isStruct())
+			{
+					string line = rd->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+					struct_hoist_info[string(rd->getName())] = R.getRewrittenText(rd->getSourceRange());
+					
+		    	//	R.RemoveText(rd->getBeginLoc(),struct_hoist_info[string(rd->getName())].length());
+				//	R.RemoveText
+		//			struct_hoist_info_ord[l] = R.getRewrittenText(rd->getSourceRange());
+
+			}	  
+		}
+	}
+};
+
+
 class  FunRewriter : public MatchFinder::MatchCallback
 {
 	private:
@@ -930,8 +916,6 @@ class  LabRewriter : public MatchFinder::MatchCallback
 	}
 };
 
-unordered_map<int,unordered_map<string,int>> str_parent;
-unordered_map<int,int> str_visited;
 class StructDefFinder : public MatchFinder::MatchCallback
 {
 	private:
@@ -989,7 +973,6 @@ class StructDefFinder : public MatchFinder::MatchCallback
 	}
 };
 
-unordered_map<string,int> str_var_visited;
 class StructDefRewriter : public MatchFinder::MatchCallback
 {
 	private:
@@ -1043,6 +1026,19 @@ class StructDefRewriter : public MatchFinder::MatchCallback
 							                stringstream name;
 												 name<<renameinfo[i]<<"_"<<vd_type;
 												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+
+												 //update scope aswell
+											//	 cout<<"updating"<<endl<<scopeinfo[l]<<endl;
+												 stringstream scope_name;
+												 stringstream  vd_type_ss;
+												 vd_type_ss<<vd_type<<"* "<<vd_name; 
+												 scope_name<<renameinfo[i]<<"_";
+													
+											//	 cout<<vd_name<<":searching for "<<vd_type_ss.str()<<" replacing with "<<scope_name.str()<<endl;
+
+												 scopeinfo[l].insert(scopeinfo[l].find(vd_type_ss.str()),scope_name.str());
+
+											//	 cout<<"updated"<<endl<<scopeinfo[l]<<endl;
 												 found  = i;
 								             break;
 									       }
@@ -1095,6 +1091,19 @@ class StructDefRewriter : public MatchFinder::MatchCallback
 							                stringstream name;
 												 name<<renameinfo[i]<<"_"<<vd_type;
 												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+												 //update scope aswell
+											//	 cout<<"updating"<<endl<<scopeinfo[l]<<endl;
+												 stringstream scope_name;
+												 stringstream  vd_type_ss;
+												 vd_type_ss<<vd_type<<"* "<<vd_name; 
+												 scope_name<<renameinfo[i]<<"_";
+													
+											//	 cout<<vd_name<<":searching for "<<vd_type_ss.str()<<" replacing with "<<scope_name.str()<<endl;
+
+												 scopeinfo[l].insert(scopeinfo[l].find(vd_type_ss.str()),scope_name.str());
+
+											//	 cout<<"updated"<<endl<<scopeinfo[l]<<endl;
+	
 												 found  = i;
 								             break;
 									       }
@@ -1109,10 +1118,140 @@ class StructDefRewriter : public MatchFinder::MatchCallback
 		}
 };
 
+
+class StructDefRewriter_F : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	StructDefRewriter_F(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+		if(const FieldDecl* vd = Result.Nodes.getNodeAs<clang::FieldDecl>("fd"))
+		{
+			if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+			{
+					string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+		
+					line = vd->getBeginLoc().printToString(R.getSourceMgr());
+					int str_l = get_line_no(line);
+					string vd_name = string(vd->getName());
+					string vd_type = vd->getType().getAsString();
+					/*Add to str_var_visited to avoid updating next time.*/
+					stringstream strvisited;
+					strvisited<<vd_name<<str_l;
+				//	cout<<strvisited.str()<<endl;
+
+					str_var_visited[strvisited.str()] = 1;
+
+					if(vd_type.find("struct ") != string::npos)
+					{
+						vd_type.erase(0,7);
+						cout<<"checking for "<<vd_type<<str_l<<endl;
+						if(vd_type.find("*") != string::npos)
+						{
+								  vd_type.erase(vd_type.length() - 2,2);
+						}
+						stringstream ss;
+						ss<<vd_name<<str_l;
+						string decl_index = ss.str();
+
+						int found = 0;
+
+						for(auto i:depthtrav[l])
+						{
+								  cout<<"checking in: "<<i<<endl;
+								  if(str_parent[i].find(vd_type) != str_parent[i].end())
+								  {
+										cout<<"found in: "<<i<<endl;
+										for(auto j:str_parent[i])
+										{
+												  cout<<j.first<<endl;
+											if((vd_type.compare(j.first)==0) && (j.second<str_l))
+											{
+										       cout<<vd_name<<"->"<<i<<endl;
+							                stringstream name;
+												 name<<renameinfo[i]<<"_"<<vd_type;
+												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+												 found  = i;
+								             break;
+									       }
+										}
+									if(found!=0) break;
+								  }
+						}
+					}
+			}
+			
+			if(const FunctionDecl* fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
+			{
+
+					string line = fdecl->getBeginLoc().printToString(R.getSourceMgr());
+					int l = get_line_no(line);
+		
+					line = vd->getBeginLoc().printToString(R.getSourceMgr());
+				//	cout<<line<<endl;
+					int str_l = get_line_no(line);
+					string vd_name = string(vd->getName());
+					string vd_type = vd->getType().getAsString();
+					/*Add to str_var_visited to avoid updating next time.*/
+					stringstream strvisited;
+					strvisited<<vd_name<<str_l;
+				//	cout<<strvisited.str()<<endl;
+
+					if((vd_type.find("struct ") != string::npos) && (str_var_visited.find(strvisited.str()) == str_var_visited.end()))
+					{
+						str_var_visited[strvisited.str()] = 1;
+						vd_type.erase(0,7);
+
+						if(vd_type.find("*") != string::npos)
+						{
+								  vd_type.erase(vd_type.length() - 2,2);
+						}
+					//	cout<<"checking for "<<vd_type<<str_l<<endl;
+						stringstream ss;
+						ss<<vd_name<<str_l;
+						string decl_index = ss.str();
+
+						int found = 0;
+
+						for(auto i:depthtrav[l])
+						{
+								 // cout<<"checking in: "<<i<<endl;
+								  if(str_parent[i].find(vd_type) != str_parent[i].end())
+								  {
+									//	cout<<"found in: "<<i<<endl;
+										for(auto j:str_parent[i])
+										{
+									//			  cout<<j.first<<endl;
+											if((vd_type.compare(j.first)==0) && (j.second<str_l))
+											{
+										      // cout<<vd_name<<"->"<<i<<endl;
+							                stringstream name;
+												 name<<renameinfo[i]<<"_"<<vd_type;
+												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
+												 found  = i;
+								             break;
+									       }
+										}
+									if(found!=0) break;
+								  }
+						}
+					}
+				}
+
+			}
+		}
+};
+
+
+
 class MyASTConsumer : public ASTConsumer
 {
 	private:
-	LabelMatcher lblM;
 	VarHandler VarM;
 	DepthHandler DepM;
 	CallResHandler CallResM;
@@ -1129,10 +1268,11 @@ class MyASTConsumer : public ASTConsumer
 	ExpressionRewriter ExpR; 
 	StructDefFinder StrdF;
 	StructDefRewriter StrDR;
+	StructDefRewriter_F StrDR_F; //for fields inside struct
 
 	public:
 	//Constructor for MyASTCOnsumer, initialize labelHandler too.
-	MyASTConsumer(Rewriter& R) : lblM(R),VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R), StrdF(R), StrDR(R)
+	MyASTConsumer(Rewriter& R) : VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R), StrdF(R), StrDR(R), StrDR_F(R)
   {
 	// Add things we want to search for e.g. label stmt.
 	// Attach a MatchCallback to tell what action to take when that object is found.
@@ -1159,6 +1299,9 @@ class MyASTConsumer : public ASTConsumer
 	 StructFinder2.addMatcher(recordDecl(hasAncestor(functionDecl().bind("fun"))).bind("rd"),&StrdF);
 	 StructFinder3.addMatcher(varDecl(hasAncestor(labelStmt().bind("lab"))).bind("vd"),&StrDR);
 	 StructFinder4.addMatcher(varDecl(hasAncestor(functionDecl().bind("fun")), isExpansionInMainFile()).bind("vd"),&StrDR);
+	 //do same for fields
+	 StructFinder3.addMatcher(fieldDecl(hasAncestor(labelStmt().bind("lab"))).bind("fd"),&StrDR_F);
+	 StructFinder4.addMatcher(fieldDecl(hasAncestor(functionDecl().bind("fun")), isExpansionInMainFile()).bind("fd"),&StrDR_F);
 	
    /*Mathcers to rewrite*/
 	 Rew.addMatcher(callExpr().bind("call"),&CallR);
@@ -1181,6 +1324,7 @@ class MyASTConsumer : public ASTConsumer
 	}
 };	
 
+//remove child from updated list
 void update_the_list()
 {
 		for(auto i:updated_list)
@@ -1190,7 +1334,6 @@ void update_the_list()
 							 if(k.second == i.first)
 							 {	
 										string child = orig_list[k.first];
-
 										updated_list[i.first].erase(updated_list[i.first].find(child),child.length());
 							 }
 				  }
@@ -1198,6 +1341,7 @@ void update_the_list()
 
 }
 
+//replace label names with prototypes 
 void update_lab_with_proto()
 {
 		  for(auto i:updated_list)
@@ -1219,19 +1363,29 @@ class Hoist_ASTConsumer : public ASTConsumer
 	Hoist_out HstR;
 	MatchFinder Rew;
 	MatchFinder LabRew;
+	MatchFinder StructRew;
 	FunRewriter FunR;
 	LabRewriter LabR;
+	StructHoister StructR;
+//	VarHandler_Str VarM;
 
 	public:
 	//Constructor for MyASTCOnsumer, initialize labelHandler too.
-	Hoist_ASTConsumer(Rewriter& R) : HstR(R),FunR(R),LabR(R)
+	Hoist_ASTConsumer(Rewriter& R) : HstR(R),FunR(R),LabR(R),StructR(R)//, VarM(R)
    {
 			  Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&HstR);
 			  Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))).bind("childlabel"),&HstR);
 			  Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("parlabel"))))).bind("childlabel"),&HstR);
+
+		//     Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))))).bind("var"),&VarM); 
+		 //	  Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("label"))))))).bind("var"), &VarM);
+		 //	  Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("fun"),&VarM);
+		 //	  Finder.addMatcher(labelStmt().bind("lab"),&VarM);
+
 			  Rew.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&FunR);
 			  LabRew.addMatcher(functionDecl(isMain()).bind("main"),&LabR);
 
+			  StructRew.addMatcher(recordDecl(hasAncestor(functionDecl()),isExpansionInMainFile()).bind("rd"),&StructR);
 	}
 
 	//Called when TU is ready.
@@ -1239,12 +1393,14 @@ class Hoist_ASTConsumer : public ASTConsumer
 	{
 		//Find all the matches in Context, specified by matchAST.
 		Finder.matchAST(Context);
+		StructRew.matchAST(Context);
 		update_the_list();
 		Rew.matchAST(Context);
 		update_lab_with_proto();
 		LabRew.matchAST(Context);
 	}
 };	
+
 class MyFrontendAction : public ASTFrontendAction
 {
 	private:
@@ -1257,28 +1413,7 @@ class MyFrontendAction : public ASTFrontendAction
 	void EndSourceFileAction() override
 	{
 
-		//write all structures and prototypes to labels.h
-
-		ofstream headerfile("labels.h");
-
-		map<int,string> scopeinfo_ord(scopeinfo.begin(), scopeinfo.end());
-		for(auto i: scopeinfo_ord)
-		{
-			headerfile<<i.second<<endl;
-		}
-
-		headerfile<<endl;
-
-
-		map<int,string> prototypes_ord(prototypes.begin(), prototypes.end());
-		for(auto i:prototypes_ord)
-		{
-			headerfile<<i.second<<";"<<endl;
-		}
-
-		headerfile.close();			
-
-   	 //Emit the rewritten buffer on screen.
+   	//Emit the rewritten buffer to file rewrite_output.c to be used for hoisting.
 		//ofstream outfile("rewrite_output.c");
 		error_code error_code;
 		llvm::raw_fd_ostream outFile("rewriter_op.c",error_code, llvm::sys::fs::F_None);
@@ -1289,7 +1424,7 @@ class MyFrontendAction : public ASTFrontendAction
 		/*Run AST for newfile*/
 		//hoister_fun();	
 
-		cout<<"Struct decl"<<endl;
+	/*	cout<<"Struct decl"<<endl;
 		for(auto i:str_parent)
 		{
 			cout<<i.first;
@@ -1300,7 +1435,7 @@ class MyFrontendAction : public ASTFrontendAction
 			cout<<endl;
 		}			
 		
-  /*  cout << "\nVarinfo : \n"; 
+      cout << "\nVarinfo : \n"; 
       for (auto itr: varinfo) 
       { 
         cout << itr.first << endl;
@@ -1435,6 +1570,31 @@ class Hoist_FrontendAction : public ASTFrontendAction
 //At the end of sourcefile write to source.
 	void EndSourceFileAction() override
 	{
+		//write all structures and prototypes to labels.h
+
+		ofstream headerfile("labels.h");
+		for(auto i:struct_hoist_info_ord)
+		{
+			headerfile<<i.second<<";"<<endl;
+		}
+
+		map<int,string> scopeinfo_ord(scopeinfo.begin(), scopeinfo.end());
+		for(auto i: scopeinfo_ord)
+		{
+			headerfile<<i.second<<endl;
+		}
+
+		headerfile<<endl;
+
+		map<int,string> prototypes_ord(prototypes.begin(), prototypes.end());
+		for(auto i:prototypes_ord)
+		{
+			headerfile<<i.second<<";"<<endl;
+		}
+
+		headerfile.close();			
+
+ 
 		TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
 
 /*		cout<<"label-parent list:"<<endl;
@@ -1466,6 +1626,7 @@ class Hoist_FrontendAction : public ASTFrontendAction
 	}
 };
 
+/*Pass 1*/
 int main(int argc, const char **argv) {
 
 		  //Reads the command line argument and interprets it, also loads the compilation database.
@@ -1487,6 +1648,7 @@ int main(int argc, const char **argv) {
 		  return 0;
 }
 
+/*Pass 2*/
 void hoister_fun() {
   int	argc = 2;
   const char* argv[2];
