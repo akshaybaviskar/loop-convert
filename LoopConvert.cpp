@@ -849,6 +849,8 @@ class  Hoist_out : public MatchFinder::MatchCallback
 	}
 };
 
+unordered_map<string,vector<string>> struct_list;
+unordered_map<string,int> struct_list_visited;
 class  StructHoister : public MatchFinder::MatchCallback
 {
 	private:
@@ -861,17 +863,50 @@ class  StructHoister : public MatchFinder::MatchCallback
 	{
 		if(const RecordDecl* rd = Result.Nodes.getNodeAs<clang::RecordDecl>("rd"))
 		{
-			if(rd->isCompleteDefinition() && rd->isStruct())
+         if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+         {
+				if(rd->isCompleteDefinition() && rd->isStruct())
+				{
+						if(struct_list_visited.find(string(rd->getName())) == struct_list_visited.end())
+						{
+							struct_list_visited[string(rd->getName())] = 1;
+							string line = rd->getBeginLoc().printToString(R.getSourceMgr());
+							int l = get_line_no(line);
+							struct_hoist_info[string(rd->getName())] = R.getRewrittenText(rd->getSourceRange());
+							
+							struct_hoist_info_ord[l] = R.getRewrittenText(rd->getSourceRange());
+							if(struct_list.find(string(ls->getName())) == struct_list.end())
+							{
+									  struct_list[string(ls->getName())] = vector<string>();
+							}
+							stringstream ss;
+							ss<<struct_hoist_info_ord[l]<<";";
+							struct_list[string(ls->getName())].push_back(ss.str());
+						}
+				}
+			}
+			if(const FunctionDecl* fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
 			{
-					string line = rd->getBeginLoc().printToString(R.getSourceMgr());
-					int l = get_line_no(line);
-					struct_hoist_info[string(rd->getName())] = R.getRewrittenText(rd->getSourceRange());
-					
-		    	//	R.RemoveText(rd->getBeginLoc(),struct_hoist_info[string(rd->getName())].length());
-				//	R.RemoveText
-		//			struct_hoist_info_ord[l] = R.getRewrittenText(rd->getSourceRange());
-
-			}	  
+				if(rd->isCompleteDefinition() && rd->isStruct())
+				{
+						if(struct_list_visited.find(string(rd->getName())) == struct_list_visited.end())
+						{
+							struct_list_visited[string(rd->getName())] = 1;
+							string line = rd->getBeginLoc().printToString(R.getSourceMgr());
+							int l = get_line_no(line);
+							struct_hoist_info[string(rd->getName())] = R.getRewrittenText(rd->getSourceRange());
+							
+							struct_hoist_info_ord[l] = R.getRewrittenText(rd->getSourceRange());
+							if(struct_list.find(string(fdecl->getName())) == struct_list.end())
+							{
+									  struct_list[string(fdecl->getName())] = vector<string>();
+							}
+							stringstream ss;
+							ss<<struct_hoist_info_ord[l]<<";";
+							struct_list[string(fdecl->getName())].push_back(ss.str());
+						}
+				}
+			}
 		}
 	}
 };
@@ -1335,7 +1370,13 @@ void update_the_list()
 							 {	
 										string child = orig_list[k.first];
 										updated_list[i.first].erase(updated_list[i.first].find(child),child.length());
+
 							 }
+				  }
+
+				  for(auto f:struct_list[i.first])
+				  {
+							updated_list[i.first].erase(updated_list[i.first].find(f),f.length());
 				  }
 		}
 
@@ -1364,6 +1405,7 @@ class Hoist_ASTConsumer : public ASTConsumer
 	MatchFinder Rew;
 	MatchFinder LabRew;
 	MatchFinder StructRew;
+	MatchFinder StructRew1;
 	FunRewriter FunR;
 	LabRewriter LabR;
 	StructHoister StructR;
@@ -1382,10 +1424,11 @@ class Hoist_ASTConsumer : public ASTConsumer
 		 //	  Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("fun"),&VarM);
 		 //	  Finder.addMatcher(labelStmt().bind("lab"),&VarM);
 
+			  StructRew.addMatcher(recordDecl(hasAncestor(labelStmt().bind("lab")),isExpansionInMainFile()).bind("rd"),&StructR);
+			  StructRew1.addMatcher(recordDecl(hasAncestor(functionDecl().bind("fun")),isExpansionInMainFile()).bind("rd"),&StructR);
 			  Rew.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&FunR);
 			  LabRew.addMatcher(functionDecl(isMain()).bind("main"),&LabR);
 
-			  StructRew.addMatcher(recordDecl(hasAncestor(functionDecl()),isExpansionInMainFile()).bind("rd"),&StructR);
 	}
 
 	//Called when TU is ready.
@@ -1394,6 +1437,7 @@ class Hoist_ASTConsumer : public ASTConsumer
 		//Find all the matches in Context, specified by matchAST.
 		Finder.matchAST(Context);
 		StructRew.matchAST(Context);
+		StructRew1.matchAST(Context);
 		update_the_list();
 		Rew.matchAST(Context);
 		update_lab_with_proto();
@@ -1608,12 +1652,22 @@ class Hoist_FrontendAction : public ASTFrontendAction
 		{
 				  cout<<i.first<<":"<<endl<<i.second<<endl;
 		}
-
+*/
 		cout<<"updated_list:"<<endl;
 		for(auto i:updated_list)
 		{
 				  cout<<i.first<<":"<<endl<<i.second<<endl;
-		}*/
+		}
+
+		cout<<"struct list:"<<endl;
+		for(auto i:struct_list)
+		{
+				  cout<<i.first<<":"<<endl;
+				  for(auto j:i.second)
+				  {
+							 cout<<j<<endl;
+				  }
+		}
 
 	}
 
