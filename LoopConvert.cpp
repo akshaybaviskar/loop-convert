@@ -1,4 +1,5 @@
 /*includes*/
+//Final version,all working.
 #include "/storage/caos/akshayb/akshay/llvm-install/include/clang/Frontend/FrontendActions.h"
 #include "/storage/caos/akshayb/akshay/llvm-install/include/clang/Tooling/CommonOptionsParser.h"
 #include "/storage/caos/akshayb/akshay/llvm-install/include/clang/Tooling/Tooling.h"
@@ -71,6 +72,124 @@ int get_line_no(string line)
     return stoi(line);
 }
 
+unordered_map<int,int> LabelOtherDepth;
+unordered_map<int,int> LabelDepthOne;
+class LabelDepthHandler : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	LabelDepthHandler(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+
+		if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+	
+				if(LabelOtherDepth.find(l) == LabelOtherDepth.end())
+				{
+				  		  LabelOtherDepth[l] = 1;
+				}
+		}
+
+		if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("funlab"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+	
+				if(LabelOtherDepth.find(l) == LabelOtherDepth.end())
+				{
+				  		  LabelDepthOne[l] = 1;
+				}
+		}
+	}
+};
+
+
+unordered_map<int,int> LabelOtherDepth_P2;
+unordered_map<int,int> LabelDepthOne_P2;
+class LabelDepthHandler_P2 : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	LabelDepthHandler_P2(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+
+		if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+	
+				if(LabelOtherDepth_P2.find(l) == LabelOtherDepth_P2.end())
+				{
+				  		  LabelOtherDepth_P2[l] = 1;
+				}
+		}
+
+		if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("funlab"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+	
+				if(LabelOtherDepth_P2.find(l) == LabelOtherDepth_P2.end())
+				{
+				  		  LabelDepthOne_P2[l] = 1;
+				}
+		}
+	}
+};
+
+
+unordered_map<string,int> VarOtherDepth;
+unordered_map<string,int> VarDepthOne;
+class VarDepthHandler : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	VarDepthHandler(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+
+		if(const VarDecl* ls  = Result.Nodes.getNodeAs<clang::VarDecl>("var"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+				stringstream name;
+				name<<ls->getNameAsString()<<l;
+	
+				if(VarOtherDepth.find(name.str()) == VarOtherDepth.end())
+				{
+				  		  VarOtherDepth[name.str()] = 1;
+				}
+		}
+
+		if(const VarDecl* ls  = Result.Nodes.getNodeAs<clang::VarDecl>("funvar"))
+		{
+		   	string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+				stringstream name;
+				name<<ls->getNameAsString()<<l;
+	
+				if(VarOtherDepth.find(name.str()) == VarOtherDepth.end())
+				{
+				  		  VarDepthOne[name.str()] = 1;
+				}
+		}
+	}
+};
+
+
 class VarHandler : public MatchFinder::MatchCallback
 {
 	private:
@@ -106,84 +225,92 @@ class VarHandler : public MatchFinder::MatchCallback
 				stringstream ss;
 				ss<<vd->getNameAsString()<<var_line;
 				string varname = ss.str();
-				vardepth[varname] =  depthinfo[l];
+				//cout<<"-------------------------"<<varname;
+				if(VarDepthOne.find(varname) != VarDepthOne.end())
+				{
+					//cout<<"found"<<endl;
+					vardepth[varname] =  depthinfo[l];
 
 
-				/*update Scope*/
-			   if(scopeinfo.find(l) == scopeinfo.end())
-				{
-					stringstream ss;
-					ss << "struct "<<"s_"<<fdecl->getNameAsString()<<"{"<<endl<<"};";
-
-					scopeinfo[l] = ss.str(); 	
-				}
-
-				/*insert into string*/
-				string type;
-				if(vd->getType().getAsString().find("int") != string::npos)
-				{
-						  type = "int";
-				}
-				else if(vd->getType().getAsString().find("float") != string::npos)
-				{
-						  type = "float";
-				}
-				else if(vd->getType().getAsString().find("struct") != string::npos)
-				{
-						if(vd->getType().getAsString().find("[") != string::npos)
-						{
-								type = vd->getType().getAsString();
-								type.erase(vd->getType().getAsString().find("["), vd->getType().getAsString().length());
-						}
-						else
-						{
-								  type = vd->getType().getAsString();
-						}
-				}
-				else if(vd->getType().getAsString().find("char") != string::npos)
-				{
-						  type = "char";
-				}
-
-
-				ss.str(string());
-				ss <<type<<"* "<<vd->getNameAsString()<<";"<<endl;
-				scopeinfo[l].insert((scopeinfo[l].length()-2), ss.str());
-	
-				/*Update scope init*/
-				if(scopeinit.find(l) == scopeinit.end())
-				{
-					stringstream ss;
-					ss<<endl<<"struct s_"<<fdecl->getNameAsString()<<" my_s;"<<endl;
-					scopeinit[l] = ss.str();
-				}
-				
-				ss.str(string()); //clear ss
-				ss<<"my_s."<<vd->getNameAsString()<<" = &"<<vd->getNameAsString()<<";"<<endl;
-	
-				scopeinit[l].insert(scopeinit[l].length(), ss.str());
-
-				if(vd->getType().getAsString().find("[") != string::npos)
-				{
-					if(arrinfo.find(varname) == arrinfo.end())
+					/*update Scope*/
+				   if(scopeinfo.find(l) == scopeinfo.end())
 					{
-						arrinfo[varname] = vector<int>();
-						int dim = count(vd->getType().getAsString(), '[');
-						
-					//	cout<<varname<<" "<<"dim: "<< dim<<endl;
-						string line = vd->getType().getAsString();					
-						size_t b = 0;
-						size_t e;
-						int x;
-						for(int k=0;k<dim;k++)
-						{
-							   b = line.find('[',b);
-								e = line.find(']',b+1);
+						stringstream ss;
+						ss << "struct "<<"s_"<<fdecl->getNameAsString()<<"{"<<endl<<"};";
 
-								//line = line.substr(b+1, e-b-1);
-							   x = stoi(line.substr(b+1,e-b-1));
-								arrinfo[varname].push_back(x);
-								b = e+1;
+						scopeinfo[l] = ss.str(); 	
+					}
+
+					/*insert into string*/
+					string type;
+					if(vd->getType().getAsString().find("int") != string::npos)
+					{
+							  type = "int";
+					}
+					else if(vd->getType().getAsString().find("float") != string::npos)
+					{
+							  type = "float";
+					}
+					else if(vd->getType().getAsString().find("struct") != string::npos)
+					{
+							if(vd->getType().getAsString().find("[") != string::npos)
+							{
+									type = vd->getType().getAsString();
+									type.erase(vd->getType().getAsString().find("["), vd->getType().getAsString().length());
+							}
+							else
+							{
+									  type = vd->getType().getAsString();
+							}
+					}
+					else if(vd->getType().getAsString().find("char") != string::npos)
+					{
+							  type = "char";
+					}
+
+
+					ss.str(string());
+					ss <<type<<"* "<<vd->getNameAsString()<<";"<<endl;
+					if(scopeinfo[l].find(ss.str()) == string::npos)
+					{
+						//cout<<ss.str()<<" inserted in scope"<<endl;
+						scopeinfo[l].insert((scopeinfo[l].length()-2), ss.str());
+					}
+					/*Update scope init*/
+					if(scopeinit.find(l) == scopeinit.end())
+					{
+						stringstream ss;
+						ss<<endl<<"struct s_"<<fdecl->getNameAsString()<<" my_s;"<<endl;
+						scopeinit[l] = ss.str();
+					}
+					
+					ss.str(string()); //clear ss
+					ss<<"my_s."<<vd->getNameAsString()<<" = &"<<vd->getNameAsString()<<";"<<endl;
+	
+				//	scopeinit[l].insert(scopeinit[l].length(), ss.str());
+
+					if(vd->getType().getAsString().find("[") != string::npos)
+					{
+						if(arrinfo.find(varname) == arrinfo.end())
+						{
+							arrinfo[varname] = vector<int>();
+							int dim = count(vd->getType().getAsString(), '[');
+							
+						//	cout<<varname<<" "<<"dim: "<< dim<<endl;
+							string line = vd->getType().getAsString();					
+							size_t b = 0;
+							size_t e;
+							int x;
+							for(int k=0;k<dim;k++)
+							{
+								   b = line.find('[',b);
+									e = line.find(']',b+1);
+
+									//line = line.substr(b+1, e-b-1);
+								   x = stoi(line.substr(b+1,e-b-1));
+									arrinfo[varname].push_back(x);
+									b = e+1;
+							}
 						}
 					}
 				}
@@ -252,8 +379,12 @@ class VarHandler : public MatchFinder::MatchCallback
 
 				ss.str(string());
 				ss <<type<<"* "<<vd->getNameAsString()<<";"<<endl;
-				scopeinfo[l].insert((scopeinfo[l].length()-2), ss.str());				
-				
+				//cout<<varname<<" in label ";
+				if(scopeinfo[l].find(ss.str()) == string::npos)
+				{
+					//cout<<ss.str()<<"inserted"<<endl;
+					scopeinfo[l].insert((scopeinfo[l].length()-2), ss.str());				
+				}
 				/*Update scope init*/
 				if(scopeinit.find(l) == scopeinit.end())
 				{
@@ -266,7 +397,7 @@ class VarHandler : public MatchFinder::MatchCallback
 				ss.str(string()); //clear ss
 				ss<<scopeinit[l]<<"my_s."<<vd->getNameAsString()<<" = &"<<vd->getNameAsString()<<";"<<endl;
 	
-				scopeinit[l] = ss.str();//.insert(scopeinit[l].length(), ss.str());
+			//	scopeinit[l] = ss.str();//.insert(scopeinit[l].length(), ss.str());
 				if(vd->getType().getAsString().find("[") != string::npos)
 				{
 					if(arrinfo.find(varname) == arrinfo.end())
@@ -340,7 +471,7 @@ class VarHandler : public MatchFinder::MatchCallback
 			if(scopeinit.find(l) == scopeinit.end())
 			{
 				stringstream ss;
-				ss<<"struct s_"<<renameinfo[l]<<" my_s;"<<endl;
+				ss<<endl<<"struct s_"<<renameinfo[l]<<" my_s;"<<endl;
 				ss<<"my_s.s = par_s;"<<endl;
 				scopeinit[l] = ss.str();
 			}
@@ -378,17 +509,22 @@ class CallResHandler : public MatchFinder::MatchCallback
 		{
 		 	if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("childlabel"))
 			{
-            string line = ls->getBeginLoc().printToString(R.getSourceMgr());
-            int lab_line = get_line_no(line);
-				line = ls->getEndLoc().printToString(R.getSourceMgr()); 
-				int lab_e_line = rangeinfo[depthtrav[lab_line][1]];
-				
-				if(callresinfo.find(string(ls->getName())) == callresinfo.end())
+				if(const CompoundStmt* cs  = Result.Nodes.getNodeAs<clang::CompoundStmt>("cs"))
 				{
-					callresinfo[string(ls->getName())] = vector<pair<int,int>>();
+				   string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+         	   int lab_line = get_line_no(line);
+					if(LabelDepthOne.find(lab_line) != LabelDepthOne.end())
+					{
+						line = cs->getEndLoc().printToString(R.getSourceMgr()); 
+						int lab_e_line = get_line_no(line);
+						
+						if(callresinfo.find(string(ls->getName())) == callresinfo.end())
+						{
+							callresinfo[string(ls->getName())] = vector<pair<int,int>>();
+						}
+						callresinfo[string(ls->getName())].push_back(make_pair(lab_line,lab_e_line));
+					}
 				}
-				callresinfo[string(ls->getName())].push_back(make_pair(lab_line,lab_e_line));
-
 			}
 		}
 		
@@ -397,19 +533,19 @@ class CallResHandler : public MatchFinder::MatchCallback
       {
          if(const LabelStmt* cl  = Result.Nodes.getNodeAs<clang::LabelStmt>("childlabel"))
          {
-           // string line = pl->getBeginLoc().printToString(R.getSourceMgr());
-           // int pl_line = get_line_no(line);
-
-            string line = cl->getBeginLoc().printToString(R.getSourceMgr());
-            int cl_line = get_line_no(line);
-            line = cl->getEndLoc().printToString(R.getSourceMgr());
-            int cl_e_line = rangeinfo[depthtrav[cl_line][1]];;
-			
-				if(callresinfo.find(string(cl->getName())) == callresinfo.end())
+				if(const CompoundStmt* cs  = Result.Nodes.getNodeAs<clang::CompoundStmt>("cs"))
 				{
-					callresinfo[string(cl->getName())] = vector<pair<int,int>>();
+				   string line = cl->getBeginLoc().printToString(R.getSourceMgr());
+         	   int cl_line = get_line_no(line);
+         	   line = cs->getEndLoc().printToString(R.getSourceMgr());
+         	   int cl_e_line = get_line_no(line);
+				
+					if(callresinfo.find(string(cl->getName())) == callresinfo.end())
+					{
+						callresinfo[string(cl->getName())] = vector<pair<int,int>>();
+					}
+					callresinfo[string(cl->getName())].push_back(make_pair(cl_line,cl_e_line));
 				}
-				callresinfo[string(cl->getName())].push_back(make_pair(cl_line,cl_e_line));
           }
        }
 
@@ -444,7 +580,7 @@ class CallResHandler : public MatchFinder::MatchCallback
 			}
 			else if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab")) 
 			{					 
-				if(globalfun.find(name) == globalfun.end())
+				if((globalfun.find(name) == globalfun.end()) || (found !=0))
 				{
 					string line = ls->getBeginLoc().printToString(R.getSourceMgr());
 					int lab_line = get_line_no(line);
@@ -492,24 +628,28 @@ class DepthHandler : public MatchFinder::MatchCallback
 			{
             string line = ls->getBeginLoc().printToString(R.getSourceMgr());
             int lab_line = get_line_no(line);
-				line = ls->getEndLoc().printToString(R.getSourceMgr()); 
-				int lab_e_line = get_line_no(line);
 
-				rangeinfo[lab_line] = lab_e_line;
-			
-		      line = fdecl->getBeginLoc().printToString(R.getSourceMgr());
-            int fun_line = get_line_no(line);
+				if(LabelDepthOne.find(lab_line) != LabelDepthOne.end())
+				{
+					line = ls->getEndLoc().printToString(R.getSourceMgr()); 
+					int lab_e_line = get_line_no(line);
+
+					rangeinfo[lab_line] = lab_e_line;
 				
-				depthinfo[lab_line] = 1;
-				nameinfo[lab_line] = string(ls->getName());
-				
-				stringstream ss;
-				ss << nameinfo[fun_line] << "_" << nameinfo[lab_line];
-				renameinfo[lab_line] = ss.str();
-				
-				depthtrav[lab_line] = vector<int>();
-				depthtrav[lab_line].push_back(lab_line);
-				depthtrav[lab_line].push_back(fun_line);
+		   	   line = fdecl->getBeginLoc().printToString(R.getSourceMgr());
+         	   int fun_line = get_line_no(line);
+					
+					depthinfo[lab_line] = 1;
+					nameinfo[lab_line] = string(ls->getName());
+					
+					stringstream ss;
+					ss << nameinfo[fun_line] << "_" << nameinfo[lab_line];
+					renameinfo[lab_line] = ss.str();
+					
+					depthtrav[lab_line] = vector<int>();
+					depthtrav[lab_line].push_back(lab_line);
+					depthtrav[lab_line].push_back(fun_line);
+				}
 			}
 		}
 		
@@ -648,14 +788,65 @@ class StructInit : public MatchFinder::MatchCallback
 	
 	virtual void run(const MatchFinder::MatchResult &Result)
 	{
-		if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+/*		if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
 		{
 			string line = ls->getBeginLoc().printToString(R.getSourceMgr());
 			int l = get_line_no(line);
 			R.InsertTextBefore(ls->getBeginLoc(),renameinfo[l]);
 			R.RemoveText(ls->getBeginLoc(),string(ls->getName()).length());
-			R.InsertTextBefore(ls->getBeginLoc(),scopeinit[depthtrav[l][1]]);
-			scopeinit[depthtrav[l][1]] = "";
+	//		R.InsertTextBefore(ls->getBeginLoc(),scopeinit[depthtrav[l][1]]);
+	//		scopeinit[depthtrav[l][1]] = "";
+		}*/
+
+		if(const LabelStmt* ls = Result.Nodes.getNodeAs<clang::LabelStmt>("lab"))
+		{
+			if(const CompoundStmt* cs = Result.Nodes.getNodeAs<clang::CompoundStmt>("cs"))
+			{
+				string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+				R.InsertText(cs->getBeginLoc().getLocWithOffset(1), scopeinit[l]);
+				R.InsertTextBefore(ls->getBeginLoc(),renameinfo[l]);
+				R.RemoveText(ls->getBeginLoc(),string(ls->getName()).length());
+			}
+		}
+
+
+		if(const FunctionDecl* ls = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
+		{
+			if(const CompoundStmt* cs = Result.Nodes.getNodeAs<clang::CompoundStmt>("cs"))
+			{
+				string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+				R.InsertText(cs->getBeginLoc().getLocWithOffset(1), scopeinit[l]);
+			}
+		}
+
+	}
+};
+
+
+class ScopeInitRewriter : public MatchFinder::MatchCallback
+{
+	private:
+	Rewriter& R;
+
+	public:
+	ScopeInitRewriter(Rewriter& Rewrite): R(Rewrite)  {}
+	
+	virtual void run(const MatchFinder::MatchResult &Result)
+	{
+		if(const VarDecl* vd = Result.Nodes.getNodeAs<clang::VarDecl>("vd"))
+		{
+			if(const DeclStmt* ds = Result.Nodes.getNodeAs<clang::DeclStmt>("ds"))
+			{
+				stringstream ss;
+				ss.str(string()); //clear ss
+				ss<<endl<<"my_s."<<vd->getNameAsString()<<" = &"<<vd->getNameAsString()<<";"<<endl;
+	
+				string line = ds->getEndLoc().printToString(R.getSourceMgr());
+				//int l = get_line_no(line);
+				R.InsertText(ds->getEndLoc().getLocWithOffset(1),ss.str());
+			}
 		}
 	}
 };
@@ -826,11 +1017,17 @@ class  Hoist_out : public MatchFinder::MatchCallback
  		if(const FunctionDecl* fdecl = Result.Nodes.getNodeAs<clang::FunctionDecl>("fun"))
 		{
 		 	if(const LabelStmt* ls  = Result.Nodes.getNodeAs<clang::LabelStmt>("childlabel"))
-			{
-				string name = string(ls->getName());
-				lab_parent[name] = fdecl->getNameAsString();
-				orig_list[name] = R.getRewrittenText(ls->getSourceRange());
-				updated_list[name] = orig_list[name];
+			{	
+		      string line = ls->getBeginLoc().printToString(R.getSourceMgr());
+				int l = get_line_no(line);
+				
+				if(LabelDepthOne_P2.find(l) != LabelDepthOne_P2.end())
+				{
+					string name = string(ls->getName());
+					lab_parent[name] = fdecl->getNameAsString();
+					orig_list[name] = R.getRewrittenText(ls->getSourceRange());
+					updated_list[name] = orig_list[name];
+				}
 			}
 		}
 		
@@ -1185,7 +1382,7 @@ class StructDefRewriter_F : public MatchFinder::MatchCallback
 					if(vd_type.find("struct ") != string::npos)
 					{
 						vd_type.erase(0,7);
-						cout<<"checking for "<<vd_type<<str_l<<endl;
+						//cout<<"checking for "<<vd_type<<str_l<<endl;
 						if(vd_type.find("*") != string::npos)
 						{
 								  vd_type.erase(vd_type.length() - 2,2);
@@ -1198,16 +1395,16 @@ class StructDefRewriter_F : public MatchFinder::MatchCallback
 
 						for(auto i:depthtrav[l])
 						{
-								  cout<<"checking in: "<<i<<endl;
+								  //cout<<"checking in: "<<i<<endl;
 								  if(str_parent[i].find(vd_type) != str_parent[i].end())
 								  {
-										cout<<"found in: "<<i<<endl;
+										//cout<<"found in: "<<i<<endl;
 										for(auto j:str_parent[i])
 										{
-												  cout<<j.first<<endl;
+												  //cout<<j.first<<endl;
 											if((vd_type.compare(j.first)==0) && (j.second<str_l))
 											{
-										       cout<<vd_name<<"->"<<i<<endl;
+										       //cout<<vd_name<<"->"<<i<<endl;
 							                stringstream name;
 												 name<<renameinfo[i]<<"_"<<vd_type;
 												 R.ReplaceText(vd->getBeginLoc().getLocWithOffset(7),name.str());
@@ -1292,8 +1489,35 @@ class MyASTConsumer : public ASTConsumer
 	CallResHandler CallResM;
 	ExpHandler ExpM;
 	CallExpRewriter CallR;
+	MatchFinder LabelDepth;
+	MatchFinder LabelDepth2;
+
+	MatchFinder DepthFinder;
+	MatchFinder DepthFinder2;
+	MatchFinder DepthFinder3;
+
+	MatchFinder CallFinder;
+	MatchFinder CallFinder2;
+	MatchFinder CallFinder3;
+	MatchFinder CallFinder4;
+	MatchFinder CallFinder5;
+
+	MatchFinder VarDepthFinder;
+	MatchFinder VarDepthFinder2;
+
+	MatchFinder VarFinder;
+	MatchFinder VarFinder2;
+	MatchFinder VarFinder3;
+	MatchFinder VarFinder4;
+
 	MatchFinder Finder;
 	MatchFinder Rew;
+	MatchFinder Rew2;
+	MatchFinder Rew3;
+	MatchFinder Rew4;
+	MatchFinder Rew5;
+	MatchFinder Rew6;
+
 	MatchFinder Hoist;
 	MatchFinder StructFinder;
 	MatchFinder StructFinder2;
@@ -1304,29 +1528,38 @@ class MyASTConsumer : public ASTConsumer
 	StructDefFinder StrdF;
 	StructDefRewriter StrDR;
 	StructDefRewriter_F StrDR_F; //for fields inside struct
+	LabelDepthHandler LblM;
+	VarDepthHandler VarDM;
+	ScopeInitRewriter SciR;
 
 	public:
 	//Constructor for MyASTCOnsumer, initialize labelHandler too.
-	MyASTConsumer(Rewriter& R) : VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R), StrdF(R), StrDR(R), StrDR_F(R)
+	MyASTConsumer(Rewriter& R) : VarM(R),DepM(R),CallResM(R),ExpM(R),CallR(R), StrR(R),ExpR(R), StrdF(R), StrDR(R), StrDR_F(R), LblM(R), VarDM(R), SciR(R)
   {
 	// Add things we want to search for e.g. label stmt.
 	// Attach a MatchCallback to tell what action to take when that object is found.
 	// also bind it so that we can take different action depending on which part of the object is found. e.g. in for loop we may want to have three different bindings one at init, one at condition check and one at increment
 
-	 Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&DepM);
-	 Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))).bind("childlabel"),&DepM);
-	 Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("parlabel"))))).bind("childlabel"),&DepM);
+	 LabelDepth.addMatcher(labelStmt(hasAncestor(labelStmt())).bind("lab"),&LblM);
+	 LabelDepth2.addMatcher(labelStmt(hasAncestor(functionDecl())).bind("funlab"),&LblM);
 
-	 Finder.addMatcher(functionDecl(/*hasDescendant(labelStmt())*/).bind("funlist"),&CallResM);
-	 Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))).bind("childlabel"),&CallResM);
-	 Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("parlabel"))))).bind("childlabel"),&CallResM);
-	 Finder.addMatcher(callExpr().bind("call"),&CallResM);
-	 Finder.addMatcher(callExpr(hasAncestor(labelStmt().bind("lab"))).bind("call"),&CallResM);
+	 DepthFinder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&DepM);
+	 DepthFinder2.addMatcher(labelStmt(hasAncestor(functionDecl().bind("fun"))).bind("childlabel"),&DepM);
+	 DepthFinder3.addMatcher(labelStmt(hasAncestor(labelStmt().bind("parlabel"))).bind("childlabel"),&DepM);
 
-    Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))))).bind("var"),&VarM); 
-	 Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("label"))))))).bind("var"), &VarM);
-	 Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("fun"),&VarM);
-	 Finder.addMatcher(labelStmt().bind("lab"),&VarM);
+	 CallFinder.addMatcher(functionDecl().bind("funlist"),&CallResM);
+	 CallFinder2.addMatcher(labelStmt(hasParent(compoundStmt(hasAncestor(functionDecl().bind("fun"))).bind("cs"))).bind("childlabel"),&CallResM);
+	 CallFinder3.addMatcher(labelStmt(hasParent(compoundStmt(hasAncestor(labelStmt().bind("parlabel"))).bind("cs"))).bind("childlabel"),&CallResM);
+	 CallFinder4.addMatcher(callExpr().bind("call"),&CallResM);
+	 CallFinder5.addMatcher(callExpr(hasAncestor(labelStmt().bind("lab"))).bind("call"),&CallResM);
+
+	 VarDepthFinder.addMatcher(varDecl(hasAncestor(labelStmt())).bind("var"),&VarDM);
+	 VarDepthFinder2.addMatcher(varDecl(hasAncestor(functionDecl()),isExpansionInMainFile()).bind("funvar"),&VarDM);
+
+    VarFinder.addMatcher(varDecl(hasParent(declStmt(hasAncestor(functionDecl().bind("fun")),isExpansionInMainFile()))).bind("var"),&VarM); 
+	 VarFinder2.addMatcher(varDecl(hasParent(declStmt(hasAncestor(labelStmt().bind("label"))))).bind("var"), &VarM);
+	 VarFinder3.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("fun"),&VarM);
+	 VarFinder4.addMatcher(labelStmt().bind("lab"),&VarM);
 
 	 Finder.addMatcher(declRefExpr(hasAncestor(labelStmt().bind("lab"))).bind("exp"), &ExpM);
 
@@ -1340,8 +1573,11 @@ class MyASTConsumer : public ASTConsumer
 	
    /*Mathcers to rewrite*/
 	 Rew.addMatcher(callExpr().bind("call"),&CallR);
-	 Rew.addMatcher(labelStmt().bind("lab"),&StrR);
-	 Rew.addMatcher(declRefExpr(hasAncestor(labelStmt().bind("lab"))).bind("exp"), &ExpR);
+	 Rew2.addMatcher(varDecl(hasParent(declStmt(hasAncestor(functionDecl()),isExpansionInMainFile()).bind("ds"))).bind("vd"),&SciR);
+//	 Rew3.addMatcher(labelStmt().bind("lab"),&StrR);
+	 Rew4.addMatcher(labelStmt(hasDescendant(compoundStmt().bind("cs"))).bind("lab"),&StrR);
+	 Rew5.addMatcher(functionDecl(hasDescendant(compoundStmt().bind("cs"))).bind("fun"),&StrR);
+	 Rew6.addMatcher(declRefExpr(hasAncestor(labelStmt().bind("lab"))).bind("exp"), &ExpR);
 
 	}
 
@@ -1349,12 +1585,38 @@ class MyASTConsumer : public ASTConsumer
 	void HandleTranslationUnit(ASTContext &Context) override
 	{
 		//Find all the matches in Context, specified by matchAST.
+		LabelDepth.matchAST(Context);
+		LabelDepth2.matchAST(Context);
+		
+		DepthFinder.matchAST(Context);
+		DepthFinder2.matchAST(Context);
+		DepthFinder3.matchAST(Context);
+
+		CallFinder.matchAST(Context);
+		CallFinder2.matchAST(Context);
+		CallFinder3.matchAST(Context);
+		CallFinder4.matchAST(Context);
+		CallFinder5.matchAST(Context);
+
+		VarDepthFinder.matchAST(Context);
+		VarDepthFinder2.matchAST(Context);
+
+		VarFinder.matchAST(Context);
+		VarFinder2.matchAST(Context);
+		VarFinder3.matchAST(Context);
+		VarFinder4.matchAST(Context);
+
 		Finder.matchAST(Context);
 		StructFinder.matchAST(Context);
 		StructFinder2.matchAST(Context);
 		StructFinder3.matchAST(Context);
 		StructFinder4.matchAST(Context);
 		Rew.matchAST(Context);
+		Rew2.matchAST(Context);
+	//	Rew3.matchAST(Context);
+		Rew4.matchAST(Context);
+		Rew5.matchAST(Context);
+		Rew6.matchAST(Context);
 		Hoist.matchAST(Context);
 	}
 };	
@@ -1401,7 +1663,11 @@ class Hoist_ASTConsumer : public ASTConsumer
 {
 	private:
 	MatchFinder Finder;
+	MatchFinder Finder2;
+	MatchFinder Finder3;
 	Hoist_out HstR;
+	MatchFinder LabelDepth;
+	MatchFinder LabelDepth2;
 	MatchFinder Rew;
 	MatchFinder LabRew;
 	MatchFinder StructRew;
@@ -1409,15 +1675,19 @@ class Hoist_ASTConsumer : public ASTConsumer
 	FunRewriter FunR;
 	LabRewriter LabR;
 	StructHoister StructR;
+	LabelDepthHandler_P2 LblM;
 //	VarHandler_Str VarM;
 
 	public:
 	//Constructor for MyASTCOnsumer, initialize labelHandler too.
-	Hoist_ASTConsumer(Rewriter& R) : HstR(R),FunR(R),LabR(R),StructR(R)//, VarM(R)
+	Hoist_ASTConsumer(Rewriter& R) : HstR(R),FunR(R),LabR(R),StructR(R),LblM(R)   //, VarM(R)
    {
+			  LabelDepth.addMatcher(labelStmt(hasAncestor(labelStmt())).bind("lab"),&LblM);
+			  LabelDepth2.addMatcher(labelStmt(hasAncestor(functionDecl())).bind("funlab"),&LblM);
+
 			  Finder.addMatcher(functionDecl(hasDescendant(labelStmt())).bind("funlist"),&HstR);
-			  Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))).bind("childlabel"),&HstR);
-			  Finder.addMatcher(labelStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("parlabel"))))).bind("childlabel"),&HstR);
+			  Finder2.addMatcher(labelStmt(hasAncestor(functionDecl().bind("fun"))).bind("childlabel"),&HstR);
+			  Finder3.addMatcher(labelStmt(hasAncestor(labelStmt().bind("parlabel"))).bind("childlabel"),&HstR);
 
 		//     Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(functionDecl().bind("fun"))))))).bind("var"),&VarM); 
 		 //	  Finder.addMatcher(varDecl(hasParent(declStmt(hasParent(compoundStmt(hasParent(labelStmt().bind("label"))))))).bind("var"), &VarM);
@@ -1435,7 +1705,12 @@ class Hoist_ASTConsumer : public ASTConsumer
 	void HandleTranslationUnit(ASTContext &Context) override
 	{
 		//Find all the matches in Context, specified by matchAST.
+		LabelDepth.matchAST(Context);
+		LabelDepth2.matchAST(Context);
+		
 		Finder.matchAST(Context);
+		Finder2.matchAST(Context);
+		Finder3.matchAST(Context);
 		StructRew.matchAST(Context);
 		StructRew1.matchAST(Context);
 		update_the_list();
@@ -1466,9 +1741,31 @@ class MyFrontendAction : public ASTFrontendAction
 		
 
 		/*Run AST for newfile*/
-		//hoister_fun();	
+		//hoister_fun();
+	/*	cout<<"LabelDepthOne"<<endl;
+		for(auto i: LabelDepthOne)
+		{
+			cout<<i.first<<endl;
+		}
+		cout<<"LabelOtherDepth"<<endl;
+		for(auto i: LabelOtherDepth)
+		{
+			cout<<i.first<<endl;
+		}
 
-	/*	cout<<"Struct decl"<<endl;
+
+		cout<<"VarDepthOne"<<endl;
+		for(auto i: VarDepthOne)
+		{
+			cout<<i.first<<endl;
+		}
+		cout<<"VarOtherDepth"<<endl;
+		for(auto i: VarOtherDepth)
+		{
+			cout<<i.first<<endl;
+		}
+
+		cout<<"Struct decl"<<endl;
 		for(auto i:str_parent)
 		{
 			cout<<i.first;
@@ -1520,23 +1817,30 @@ class MyFrontendAction : public ASTFrontendAction
 			cout<<i.second<<";"<<endl;
 		}			
 
-		for(auto i:renameinfo)
+		cout<<"renameinfo"<<endl;
+		map<int,string> renameinfo_ord(renameinfo.begin(),renameinfo.end());
+		for(auto i:renameinfo_ord)
 		{
 			cout<<i.first<<" "<<i.second<<" "<<endl;
 		}
 
 		cout<<"Depth of labels and functons:"<<endl;
-		for(auto i:depthinfo)
+		map<int,int> depthinfo_o(depthinfo.begin(),depthinfo.end());
+		for(auto i:depthinfo_o)
 		{
 			cout<<i.first<<" "<<i.second<<" "<<endl;
 		}
 
-		for(auto i:nameinfo)
+		cout<<"nameinfo"<<endl;
+		map<int,string> nameinfo_o(nameinfo.begin(),nameinfo.end());
+		for(auto i:nameinfo_o)
 		{
 			cout<<i.first<<" "<<i.second<<" "<<endl;
 		}
 
-		for(auto i:depthtrav)
+		cout<<"depthtrav"<<endl;
+		map<int,vector<int>> depthtrav_o(depthtrav.begin(),depthtrav.end());
+		for(auto i:depthtrav_o)
 		{
 			cout<<i.first;
 			for(auto j:i.second)
@@ -1546,12 +1850,16 @@ class MyFrontendAction : public ASTFrontendAction
 			cout<<endl;
 		}
 
-		for(auto i:rangeinfo)
+		cout<<"rangeinfo"<<endl;
+		map<int,int> rangeinfo_o(rangeinfo.begin(),rangeinfo.end());
+		for(auto i:rangeinfo_o)
 		{
 			cout<<i.first<<" "<<i.second<<endl;
 		}
 
-		for(auto i:callresinfo)
+		cout<<"callresinfo"<<endl;
+		map<string,vector<pair<int,int>>> callresinfo_o(callresinfo.begin(),callresinfo.end());
+		for(auto i:callresinfo_o)
 		{
 			cout<<i.first<<" ";
 
@@ -1562,7 +1870,9 @@ class MyFrontendAction : public ASTFrontendAction
 			cout<<endl;
 		}
 
-		for(auto i:callres)
+		cout<<"callres"<<endl;
+		map<int,int> callres_o(callres.begin(),callres.end());
+		for(auto i:callres_o)
 		{
 			cout<<i.first<<"->"<<i.second<<endl;
 		}
@@ -1590,8 +1900,8 @@ class MyFrontendAction : public ASTFrontendAction
 		for(auto i:callexprdepth)
 		{
 			cout<<i.first<<"-->"<<i.second<<endl;
-		}
-*/	}
+		}*/
+	}
 
 
 	virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile)
@@ -1652,7 +1962,7 @@ class Hoist_FrontendAction : public ASTFrontendAction
 		{
 				  cout<<i.first<<":"<<endl<<i.second<<endl;
 		}
-*/
+
 		cout<<"updated_list:"<<endl;
 		for(auto i:updated_list)
 		{
@@ -1667,7 +1977,7 @@ class Hoist_FrontendAction : public ASTFrontendAction
 				  {
 							 cout<<j<<endl;
 				  }
-		}
+		}*/
 
 	}
 
